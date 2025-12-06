@@ -3,8 +3,16 @@
 import os
 import re
 import pandas as pd
-from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
+
+from openpyxl import load_workbook
+from openpyxl.styles import (
+    PatternFill,
+    Font,
+    Alignment,
+    Border,
+    Side,
+)
+from openpyxl.formatting.rule import CellIsRule
 
 COLUMNA_CANTIDAD = "Cantidad"
 
@@ -28,20 +36,75 @@ PRIORIDAD_DEPARTAMENTOS_DEFAULT = {
 CATEGORIAS_ESPECIALES = ["ELECTRO", "ELECTRODOMESTICOS", "FERRETERIA", "RODADOS"]
 
 MESES_ES = [
-    "ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO",
-    "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE",
+    "ENERO",
+    "FEBRERO",
+    "MARZO",
+    "ABRIL",
+    "MAYO",
+    "JUNIO",
+    "JULIO",
+    "AGOSTO",
+    "SEPTIEMBRE",
+    "OCTUBRE",
+    "NOVIEMBRE",
+    "DICIEMBRE",
 ]
 
 MAPA_MES = {m: i + 1 for i, m in enumerate(MESES_ES)}
 
-# Explicaciones para columnas de Estacionalidad
-EXPLICACIONES_ESTACIONALIDAD = {
-    "Venta total año": "Ventas totales en el período",
-    "Venta promedio mensual": "Venta promedio por mes",
-    "Mes de pico": "Mes con mayor venta",
-    "Venta en mes pico": "Unidades en mes pico",
-    "Índice estacional pico": "Mes pico / promedio (%)",
+# --------- Explicaciones para fila 2 en cada hoja --------- #
+
+EXPLICACIONES_CONSOLIDADO = {
+    "IdArticulo": "Código único del producto",
+    "Marca": "Nombre del fabricante",
+    "Descripcion": "Nombre comercial del producto",
+    "Departamento": "Categoría principal de venta",
+    "SubFamilia": "Subcategoría del producto",
+    "Familia": "Clasificación comercial",
+    "TOTAL CORRIENTES": "Unidades vendidas totales en sucursal Corrientes",
+    "TOTAL HIPER": "Unidades vendidas totales en sucursal Hipermercado",
+    "TOTAL CONSOLIDADO": "Sumatoria Corrientes + Hipermercado (período completo)",
 }
+
+EXPLICACIONES_RANKING = {
+    "IdArticulo": "Código único del producto",
+    "Marca": "Nombre del fabricante",
+    "Descripcion": "Nombre comercial del producto",
+    "Total Vendido": "Unidades totales vendidas (todas las sucursales y meses)",
+}
+
+EXPLICACIONES_POR_SUCURSAL = {
+    "SUCURSAL": "Nombre de la sucursal",
+    "TOTAL": "Unidades vendidas en todo el período",
+}
+
+EXPLICACIONES_MATRIZ_DEPTO = {
+    "Departamento": "Categoría principal de venta",
+    "CORRIENTES": "Unidades del departamento en sucursal Corrientes (período)",
+    "HIPER": "Unidades del departamento en sucursal Hipermercado (período)",
+    "TOTAL": "Sumatoria Corrientes + Hiper (período)",
+}
+
+EXPLICACIONES_EVOLUCION = {
+    "Departamento": "Categoría principal de venta",
+}
+
+EXPLICACIONES_ESTACIONALIDAD = {
+    "IdArticulo": "Código único del producto",
+    "Marca": "Nombre del fabricante",
+    "Descripcion": "Nombre comercial del producto",
+    "Departamento": "Categoría principal de venta",
+    "SubFamilia": "Subcategoría del producto",
+    "Familia": "Clasificación comercial",
+    "VENTA_TOTAL_ANUAL": "Ventas totales en el período",
+    "PROMEDIO_MENSUAL": "Venta promedio por mes",
+    "MES_PICO": "Mes con mayor venta",
+    "VENTA_PICO": "Unidades en mes pico",
+    "INDICE_PICO": "Mes pico ÷ promedio (%)",
+    # Índices por mes se generan dinámicamente: "[MES] ÷ promedio (%)"
+}
+
+# ---------------------------------------------------------- #
 
 
 def normalizar_mes(mes_str: str) -> str:
@@ -58,7 +121,7 @@ def parsear_nombre_archivo(nombre: str):
     Espera algo tipo: '3. MARZO 2025 CORRIENTES.xlsx'
     """
     base = os.path.splitext(os.path.basename(nombre))[0]
-    base_up = base.upper().replace(" ", " ")
+    base_up = base.upper().replace("  ", " ")
 
     # Buscar sucursal conocida
     sucursal = None
@@ -74,7 +137,6 @@ def parsear_nombre_archivo(nombre: str):
         return None
 
     _, mes_txt, anio_txt = m.groups()
-
     try:
         mes_norm = normalizar_mes(mes_txt)
     except ValueError:
@@ -87,10 +149,11 @@ def parsear_nombre_archivo(nombre: str):
 def consolidar_datos(archivos_info, prioridades_depto=None):
     """
     archivos_info: lista de diccionarios:
-        - "ruta": str,
-        - "mes": "MARZO",
-        - "anio": 2025,
-        - "sucursal": "HIPER"
+        "ruta": str,
+        "mes": "MARZO",
+        "anio": 2025,
+        "sucursal": "HIPER"
+
     prioridades_depto: dict opcional para sobreescribir PRIORIDAD_DEPARTAMENTOS_DEFAULT
     """
     if prioridades_depto is None:
@@ -110,14 +173,13 @@ def consolidar_datos(archivos_info, prioridades_depto=None):
             continue
 
         df = pd.read_excel(ruta, sheet_name=0)
-
         if COLUMNA_CANTIDAD not in df.columns or "IdArticulo" not in df.columns:
             continue
 
         columnas_existentes = [c for c in COLUMNAS_DESCRIPTIVAS if c in df.columns]
         columnas_a_usar = ["IdArticulo"] + columnas_existentes + [COLUMNA_CANTIDAD]
-
         df_f = df[columnas_a_usar].copy()
+
         df_f["MES"] = f"{mes} {anio}"
         df_f["SUCURSAL"] = sucursal
 
@@ -126,11 +188,13 @@ def consolidar_datos(archivos_info, prioridades_depto=None):
             if col in df_f.columns:
                 df_f[col] = df_f[col].astype(str).str.strip()
 
-        # Normalización de Departamento
+        # Normalización de Departamento (se puede extender)
         if "Departamento" in df_f.columns:
             df_f["Departamento"] = df_f["Departamento"].str.upper()
             df_f.loc[df_f["Departamento"] == "ACEITES", "Departamento"] = "ALMACEN"
-            df_f.loc[df_f["Departamento"] == "HIGIENE PERSONAL", "Departamento"] = "LIMPIEZA Y CUIDADO"
+            df_f.loc[
+                df_f["Departamento"] == "HIGIENE PERSONAL", "Departamento"
+            ] = "LIMPIEZA Y CUIDADO"
 
         todos.append(df_f)
 
@@ -141,17 +205,22 @@ def consolidar_datos(archivos_info, prioridades_depto=None):
 
     # Consolidar por prioridad de departamento
     df["PRIORIDAD"] = df["Departamento"].map(prioridades).fillna(0)
-
     df["CLAVE_PRODUCTO"] = (
         df["IdArticulo"].astype(str)
-        + "|" + df.get("Marca", "").astype(str)
-        + "|" + df.get("Descripcion", "").astype(str)
-        + "|" + df.get("SubFamilia", "").astype(str)
-        + "|" + df.get("Familia", "").astype(str)
+        + "|"
+        + df.get("Marca", "").astype(str)
+        + "|"
+        + df.get("Descripcion", "").astype(str)
+        + "|"
+        + df.get("SubFamilia", "").astype(str)
+        + "|"
+        + df.get("Familia", "").astype(str)
     )
 
     idx_max = df.groupby("CLAVE_PRODUCTO")["PRIORIDAD"].idxmax()
-    dept_final = df.loc[idx_max, ["CLAVE_PRODUCTO", "Departamento"]].drop_duplicates("CLAVE_PRODUCTO")
+    dept_final = df.loc[idx_max, ["CLAVE_PRODUCTO", "Departamento"]].drop_duplicates(
+        "CLAVE_PRODUCTO"
+    )
 
     df = df.drop(columns=["Departamento"])
     df = df.merge(
@@ -164,7 +233,16 @@ def consolidar_datos(archivos_info, prioridades_depto=None):
 
     # Agrupar final
     df = df.groupby(
-        ["IdArticulo", "Marca", "Descripcion", "Departamento", "SubFamilia", "Familia", "MES", "SUCURSAL"],
+        [
+            "IdArticulo",
+            "Marca",
+            "Descripcion",
+            "Departamento",
+            "SubFamilia",
+            "Familia",
+            "MES",
+            "SUCURSAL",
+        ],
         as_index=False,
     )[COLUMNA_CANTIDAD].sum()
 
@@ -181,108 +259,166 @@ def _orden_mes_clave(mes_ano: str):
     partes = mes_ano.split()
     if len(partes) != 2:
         return (9999, 99)
-
     mes_txt, anio_txt = partes
     anio = int(anio_txt)
     mes_num = MAPA_MES.get(mes_txt, 99)
     return (anio, mes_num)
 
 
-def _aplicar_estilos_estacionalidad(ws, num_filas_datos):
-    """
-    Aplica estilos a la hoja de estacionalidad:
-    - Encabezados con fondo gris y texto blanco
-    - Fila de explicaciones debajo de encabezados
-    - Formato condicional de colores según ÍNDICE_PICO
-    """
-    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+# --------- Estilos genéricos para fila 2 --------- #
 
-    # Estilos
-    header_fill = PatternFill(start_color="4F4F4F", end_color="4F4F4F", fill_type="solid")
-    header_font = Font(bold=True, color="FFFFFF", size=11)
-    explanation_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
-    explanation_font = Font(italic=True, size=9, color="000000")
-    center_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    thin_border = Border(
+
+def _aplicar_estilos_fila2_generica(ws, encabezados, explicaciones_dict, num_filas_datos):
+    """
+    Aplica estilos profesionales a fila 2 (explicaciones) para cualquier hoja.
+    """
+    fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
+    font = Font(italic=True, size=9)
+    alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    border = Border(
         left=Side(style="thin"),
         right=Side(style="thin"),
         top=Side(style="thin"),
         bottom=Side(style="thin"),
     )
 
-    # Fila 1: Encabezados
-    for col in range(1, ws.max_column + 1):
-        cell = ws.cell(row=1, column=col)
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = center_align
-        cell.border = thin_border
+    # Fila 2
+    for col_idx, encabezado in enumerate(encabezados, start=1):
+        cell = ws.cell(row=2, column=col_idx)
 
-    # Fila 2: Explicaciones
-    explicaciones_map = {
-        "IdArticulo": "Código",
-        "Marca": "Marca",
-        "Descripcion": "Descripción",
-        "Departamento": "Departamento",
-        "SubFamilia": "Subfamilia",
-        "Familia": "Familia",
-        "Venta total año": "Ventas totales en período",
-        "Venta promedio mensual": "Venta promedio por mes",
-        "Mes de pico": "Mes con mayor venta",
-        "Venta en mes pico": "Unidades en mes pico",
-        "Índice estacional pico": "Mes pico / promedio (%)",
-    }
+        # Lógica especial según patrón de nombre
+        valor = explicaciones_dict.get(encabezado)
 
-    for col in range(1, ws.max_column + 1):
-        cell = ws.cell(row=2, column=col)
-        header_cell = ws.cell(row=1, column=col)
-        header_text = header_cell.value
-        explicacion = explicaciones_map.get(str(header_text), "")
-        cell.value = explicacion
-        cell.fill = explanation_fill
-        cell.font = explanation_font
-        cell.alignment = center_align
-        cell.border = thin_border
+        # Consolidado / Categorías Especiales: MES_AAAA_SUCURSAL
+        if valor is None and "_" in encabezado and " " in encabezado:
+            # ejemplo: "MARZO 2025_CORRIENTES"
+            partes = encabezado.split("_", 1)
+            mes_anio = partes[0]
+            suc = partes[1]
+            valor = f"Unidades {mes_anio} en {suc}"
 
-    # Formato condicional para columna ÍNDICE_PICO (porcentaje)
-    # Buscar columna con ese nombre
-    indice_col = None
-    for col in range(1, ws.max_column + 1):
-        if ws.cell(row=1, column=col).value == "Índice estacional pico":
-            indice_col = col
+        # Por Sucursal: columnas de meses
+        if valor is None and encabezado in MESES_ES:
+            valor = f"Unidades vendidas en {encabezado.title()}"
+
+        # Evolución Mensual: meses en columnas
+        if valor is None and any(m in encabezado for m in MESES_ES):
+            valor = f"Unidades del departamento en {encabezado}"
+
+        # Estacionalidad: índices por mes
+        if (
+            valor is None
+            and encabezado.upper().startswith("INDICE_")
+            and encabezado != "INDICE_PICO"
+        ):
+            mes = encabezado.replace("INDICE_", "")
+            valor = f"{mes.title()} ÷ promedio (%)"
+
+        if valor is None:
+            valor = encabezado
+
+        cell.value = valor
+        cell.fill = fill
+        cell.font = font
+        cell.alignment = alignment
+        cell.border = border
+
+    # Alto fila 2
+    ws.row_dimensions[2].height = 30
+
+    # Bordes datos
+    thin_border = Border(
+        left=Side(style="thin"),
+        right=Side(style="thin"),
+        top=Side(style="thin"),
+        bottom=Side(style="thin"),
+    )
+    for row in range(3, num_filas_datos + 3):
+        for col in range(1, len(encabezados) + 1):
+            cell = ws.cell(row=row, column=col)
+            cell.border = thin_border
+
+            # Alineación texto vs números (heurística simple)
+            if col <= 6 or isinstance(cell.value, str):
+                cell.alignment = Alignment(horizontal="left", vertical="center")
+            else:
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+
+
+def _aplicar_estilos_estacionalidad(ws, num_filas_datos):
+    """
+    Aplica:
+    - Fila 2 con explicaciones y estilos
+    - Formato porcentaje en columnas de índices
+    - Formato condicional verde/amarillo/rojo sobre INDICE_PICO
+    """
+    encabezados = [cell.value for cell in ws[1]]
+    _aplicar_estilos_fila2_generica(
+        ws, encabezados, EXPLICACIONES_ESTACIONALIDAD, num_filas_datos
+    )
+
+    # Columnas de índices (INDICE_PICO + INDICE_ENERO..INDICE_DICIEMBRE)
+    col_indices = []
+    for idx, nombre in enumerate(encabezados, start=1):
+        if nombre and nombre.startswith("INDICE_"):
+            col_indices.append(idx)
+
+    # Formato porcentaje 0.0%
+    for col_idx in col_indices:
+        for row in range(3, num_filas_datos + 3):
+            cell = ws.cell(row=row, column=col_idx)
+            cell.number_format = "0.0%"
+
+    # Formato condicional sobre INDICE_PICO (si existe)
+    col_pico = None
+    for idx, nombre in enumerate(encabezados, start=1):
+        if nombre == "INDICE_PICO":
+            col_pico = idx
             break
 
-    if indice_col:
-        green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")  # Verde claro
-        green_font = Font(color="006100", bold=True)
-        yellow_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")  # Amarillo claro
-        yellow_font = Font(color="9C6500", bold=True)
-        red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")  # Rojo claro
-        red_font = Font(color="9C0006", bold=True)
+    if col_pico is None:
+        return
 
-        # Aplicar colores según rango (filas 3 en adelante, omitiendo fila de explicaciones)
-        for row in range(3, num_filas_datos + 3):
-            cell = ws.cell(row=row, column=indice_col)
-            if cell.value is not None:
-                try:
-                    valor = float(str(cell.value).replace("%", ""))
-                    if valor > 110:  # Mayor a 110%
-                        cell.fill = green_fill
-                        cell.font = green_font
-                    elif valor < 90:  # Menor a 90%
-                        cell.fill = red_fill
-                        cell.font = red_font
-                    else:  # Entre 90% y 110%
-                        cell.fill = yellow_fill
-                        cell.font = yellow_font
-                except (ValueError, AttributeError):
-                    pass
+    rango = f"{_col_letra(col_pico)}3:{_col_letra(col_pico)}{num_filas_datos + 2}"
 
-    # Ajustar ancho de columnas
-    ws.row_dimensions[1].height = 25
-    ws.row_dimensions[2].height = 40
-    for col in range(1, ws.max_column + 1):
-        ws.column_dimensions[get_column_letter(col)].width = 18
+    verde_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+    verde_font = Font(bold=True, color="006100")
+    regla_verde = CellIsRule(
+        operator="greaterThan", formula=["1.10"], fill=verde_fill, font=verde_font
+    )
+
+    amarillo_fill = PatternFill(
+        start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"
+    )
+    amarillo_font = Font(bold=True, color="9C6500")
+    regla_amarillo = CellIsRule(
+        operator="between",
+        formula=["1.0", "1.10"],  # 100%–110%
+        fill=amarillo_fill,
+        font=amarillo_font,
+    )
+
+    rojo_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+    rojo_font = Font(bold=True, color="9C0006")
+    regla_rojo = CellIsRule(
+        operator="lessThan", formula=["1.0"], fill=rojo_fill, font=rojo_font
+    )
+
+    ws.conditional_formatting.add(rango, regla_verde)
+    ws.conditional_formatting.add(rango, regla_amarillo)
+    ws.conditional_formatting.add(rango, regla_rojo)
+
+
+def _col_letra(idx):
+    """Convierte índice de columna (1-based) a letra estilo Excel."""
+    result = ""
+    while idx:
+        idx, rem = divmod(idx - 1, 26)
+        result = chr(65 + rem) + result
+    return result
+
+
+# ---------------------------------------------------------- #
 
 
 def generar_reportes(
@@ -298,24 +434,24 @@ def generar_reportes(
     habilitar_estacionalidad=False,
 ):
     """
-    Genera reportes en un solo Excel, con opciones:
-    - columnas_consolidado: lista de nombres de columnas en el orden deseado
-      (se usan solo las que existan; el resto se ignora).
-    - habilitar_*: booleans para crear o no cada hoja adicional.
-    - filtros_especiales: dict opcional {"departamentos": [...], "marcas": [...]}
-      para filtrar la hoja de Categorías Especiales.
-    - habilitar_estacionalidad: si True, genera hoja con índice estacional,
-      índices por mes y mes pico por producto.
+    Genera reportes en un solo Excel, con opciones.
     """
     meses_ordenados = sorted(df["MES"].unique(), key=_orden_mes_clave)
     sucursales = sorted(df["SUCURSAL"].dropna().unique())
 
     with pd.ExcelWriter(ruta_salida, engine="openpyxl") as writer:
-        # 1) CONSOLIDADO (siempre se genera)
+        # 1) Consolidado (siempre se genera)
         df_temp = df.copy()
         df_temp["MES_SUC"] = df_temp["MES"] + "_" + df_temp["SUCURSAL"]
 
-        idx_cols = ["IdArticulo", "Marca", "Descripcion", "Departamento", "SubFamilia", "Familia"]
+        idx_cols = [
+            "IdArticulo",
+            "Marca",
+            "Descripcion",
+            "Departamento",
+            "SubFamilia",
+            "Familia",
+        ]
 
         df_pivot = df_temp.pivot_table(
             index=idx_cols,
@@ -329,14 +465,13 @@ def generar_reportes(
             if col not in idx_cols:
                 df_pivot[col] = df_pivot[col].astype(int)
 
-        # Construir columnas por defecto
+        # Columnas por defecto
         cols_def = idx_cols.copy()
 
         for mes in meses_ordenados:
             cols_mes = [c for c in df_pivot.columns if c.startswith(mes + "_")]
             if not cols_mes:
                 continue
-
             df_pivot[mes] = df_pivot[cols_mes].sum(axis=1).astype(int)
             cols_def.append(mes)
 
@@ -345,7 +480,6 @@ def generar_reportes(
             cols_suc = [c for c in df_pivot.columns if c.endswith("_" + suc)]
             if not cols_suc:
                 continue
-
             col_total = f"TOTAL {suc.upper()}"
             df_pivot[col_total] = df_pivot[cols_suc].sum(axis=1).astype(int)
             total_cols.append(col_total)
@@ -354,152 +488,290 @@ def generar_reportes(
             df_pivot["TOTAL CONSOLIDADO"] = df_pivot[total_cols].sum(axis=1).astype(int)
             cols_def.extend(total_cols + ["TOTAL CONSOLIDADO"])
 
-        # Aplicar columnas personalizadas si se proporcionan
+        # Aplicar orden personalizado si viene desde GUI
         if columnas_consolidado:
-            cols_def = [c for c in columnas_consolidado if c in df_pivot.columns]
+            orden = [c for c in columnas_consolidado if c in df_pivot.columns]
+            extras = [c for c in df_pivot.columns if c not in orden]
+            cols_finales = orden + extras
+        else:
+            cols_finales = cols_def
 
-        df_pivot = df_pivot[cols_def]
-        df_pivot.to_excel(writer, sheet_name="Consolidado", index=False)
+        df_final = (
+            df_pivot[cols_finales].sort_values("IdArticulo").reset_index(drop=True)
+        )
+        df_final.to_excel(writer, sheet_name="Consolidado", index=False)
 
-        # 2) ESTACIONALIDAD (si está habilitada)
-        if habilitar_estacionalidad:
-            df_estacionalidad = _generar_estacionalidad(df, meses_ordenados)
-            df_estacionalidad.to_excel(writer, sheet_name="Estacionalidad", index=False, startrow=2)
-
-            # Aplicar estilos a la hoja de estacionalidad
-            ws_est = writer.sheets["Estacionalidad"]
-            _aplicar_estilos_estacionalidad(ws_est, len(df_estacionalidad))
-
-        # 3) RANKING (si está habilitado)
+        # 2) Ranking de Ventas
         if habilitar_ranking:
-            df_ranking = df_pivot[idx_cols + ["TOTAL CONSOLIDADO"]].copy()
-            df_ranking = df_ranking.sort_values("TOTAL CONSOLIDADO", ascending=False).head(50)
-            df_ranking.to_excel(writer, sheet_name="Top 50", index=False)
+            ranking = df.groupby(["IdArticulo", "Marca", "Descripcion"]).agg(
+                {COLUMNA_CANTIDAD: "sum"}
+            ).reset_index()
+            ranking = ranking.sort_values(
+                COLUMNA_CANTIDAD, ascending=False
+            ).reset_index(drop=True)
+            ranking.rename(columns={COLUMNA_CANTIDAD: "Total Vendido"}, inplace=True)
+            ranking.to_excel(writer, sheet_name="Ranking de Ventas", index=False)
 
-        # 4) POR SUCURSAL (si está habilitado)
+        # 3) Por Sucursal
         if habilitar_por_sucursal:
-            for suc in sucursales:
-                df_suc = df[df["SUCURSAL"] == suc].copy()
-                df_suc_pivot = df_suc.pivot_table(
-                    index=idx_cols,
+            por_suc = df.pivot_table(
+                index="SUCURSAL",
+                columns="MES",
+                values=COLUMNA_CANTIDAD,
+                aggfunc="sum",
+                fill_value=0,
+            ).reset_index()
+            cols_tot = [m for m in meses_ordenados if m in por_suc.columns]
+            if cols_tot:
+                por_suc["TOTAL"] = por_suc[cols_tot].sum(axis=1)
+            por_suc.to_excel(writer, sheet_name="Por Sucursal", index=False)
+
+        # 4) Matriz (Departamento x Sucursal)
+        if habilitar_matriz:
+            matriz = df.pivot_table(
+                index="Departamento",
+                columns="SUCURSAL",
+                values=COLUMNA_CANTIDAD,
+                aggfunc="sum",
+                fill_value=0,
+            )
+            matriz["TOTAL"] = matriz.sum(axis=1)
+            matriz = matriz.sort_values("TOTAL", ascending=False)
+            matriz.to_excel(writer, sheet_name="Matriz")
+
+        # 5) Evolución Mensual
+        if habilitar_evolucion:
+            evol = df.pivot_table(
+                index="Departamento",
+                columns="MES",
+                values=COLUMNA_CANTIDAD,
+                aggfunc="sum",
+                fill_value=0,
+            )
+            cols_evol = [m for m in meses_ordenados if m in evol.columns]
+            evol = evol[cols_evol]
+            evol.to_excel(writer, sheet_name="Evolución Mensual")
+
+        # 6) Categorías Especiales con filtros opcionales
+        if habilitar_especiales:
+            df_espec = df.copy()
+
+            if filtros_especiales:
+                deps = filtros_especiales.get("departamentos") or []
+                marcas = filtros_especiales.get("marcas") or []
+                if deps:
+                    deps_up = [d.upper().strip() for d in deps]
+                    df_espec = df_espec[
+                        df_espec["Departamento"].str.upper().isin(deps_up)
+                    ]
+                if marcas:
+                    marcas_up = [m.upper().strip() for m in marcas]
+                    df_espec = df_espec[
+                        df_espec["Marca"].str.upper().isin(marcas_up)
+                    ]
+            else:
+                df_espec = df_espec[
+                    df_espec["Departamento"].str.upper().isin(CATEGORIAS_ESPECIALES)
+                ]
+
+            if not df_espec.empty:
+                tmp = df_espec.copy()
+                tmp["MES_SUC"] = tmp["MES"] + "_" + tmp["SUCURSAL"]
+
+                idx_cols_espec = [
+                    "IdArticulo",
+                    "Marca",
+                    "Descripcion",
+                    "Departamento",
+                    "SubFamilia",
+                    "Familia",
+                ]
+
+                piv = tmp.pivot_table(
+                    index=idx_cols_espec,
+                    columns="MES_SUC",
+                    values=COLUMNA_CANTIDAD,
+                    aggfunc="sum",
+                    fill_value=0,
+                ).reset_index()
+
+                for col in piv.columns:
+                    if col not in idx_cols_espec:
+                        piv[col] = piv[col].astype(int)
+
+                cols_espec_final = idx_cols_espec.copy()
+
+                for mes in meses_ordenados:
+                    cols_mes = [c for c in piv.columns if c.startswith(mes + "_")]
+                    if not cols_mes:
+                        continue
+                    piv[mes] = piv[cols_mes].sum(axis=1).astype(int)
+                    cols_espec_final.append(mes)
+
+                total_cols_espec = []
+                for suc in sucursales:
+                    cols_suc = [c for c in piv.columns if c.endswith("_" + suc)]
+                    if not cols_suc:
+                        continue
+                    col_total = f"TOTAL {suc.upper()}"
+                    piv[col_total] = piv[cols_suc].sum(axis=1).astype(int)
+                    total_cols_espec.append(col_total)
+
+                if total_cols_espec:
+                    piv["TOTAL CONSOLIDADO"] = piv[total_cols_espec].sum(
+                        axis=1
+                    ).astype(int)
+                    cols_espec_final.extend(total_cols_espec + ["TOTAL CONSOLIDADO"])
+
+                piv_final = piv[cols_espec_final].sort_values(
+                    "IdArticulo"
+                ).reset_index(drop=True)
+
+                piv_final.to_excel(
+                    writer, sheet_name="Categorias Especiales", index=False
+                )
+
+        # 7) Estacionalidad (índice estacional y mes pico por producto)
+        if habilitar_estacionalidad:
+            df_est = df.copy()
+            idx_cols_est = [
+                "IdArticulo",
+                "Marca",
+                "Descripcion",
+                "Departamento",
+                "SubFamilia",
+                "Familia",
+            ]
+
+            grp = df_est.groupby(idx_cols_est + ["MES"], as_index=False)[
+                COLUMNA_CANTIDAD
+            ].sum()
+
+            if not grp.empty:
+                piv_est = grp.pivot_table(
+                    index=idx_cols_est,
                     columns="MES",
                     values=COLUMNA_CANTIDAD,
                     aggfunc="sum",
                     fill_value=0,
                 ).reset_index()
 
-                for col in df_suc_pivot.columns:
-                    if col not in idx_cols:
-                        df_suc_pivot[col] = df_suc_pivot[col].astype(int)
+                mes_cols = [m for m in meses_ordenados if m in piv_est.columns]
+                if not mes_cols:
+                    # sin meses no tiene sentido la hoja
+                    pass
+                else:
+                    piv_est["VENTA_TOTAL_ANUAL"] = piv_est[mes_cols].sum(axis=1)
+                    n_meses = len(mes_cols)
+                    piv_est["PROMEDIO_MENSUAL"] = (
+                        piv_est["VENTA_TOTAL_ANUAL"] / n_meses
+                    )
+                    piv_est["PROMEDIO_MENSUAL"] = piv_est[
+                        "PROMEDIO_MENSUAL"
+                    ].replace(0, pd.NA)
 
-                cols_suc = idx_cols + [m for m in meses_ordenados if m in df_suc_pivot.columns]
-                df_suc_pivot = df_suc_pivot[cols_suc]
+                    piv_est["MES_PICO"] = piv_est[mes_cols].idxmax(axis=1)
 
-                sheet_name = f"Sucursal {suc[:10]}"
-                df_suc_pivot.to_excel(writer, sheet_name=sheet_name, index=False)
+                    def _venta_pico(row):
+                        mes = row["MES_PICO"]
+                        if pd.isna(mes):
+                            return 0
+                        return row.get(mes, 0)
 
-        # 5) MATRIZ (si está habilitada)
-        if habilitar_matriz:
-            df_matriz = df_pivot[["Departamento", "TOTAL CONSOLIDADO"]].copy()
-            df_matriz = df_matriz.groupby("Departamento", as_index=False)["TOTAL CONSOLIDADO"].sum()
-            df_matriz = df_matriz.sort_values("TOTAL CONSOLIDADO", ascending=False)
-            df_matriz.to_excel(writer, sheet_name="Matriz Departamentos", index=False)
+                    piv_est["VENTA_PICO"] = piv_est.apply(_venta_pico, axis=1)
 
-        # 6) EVOLUCIÓN (si está habilitada)
-        if habilitar_evolucion:
-            df_evo = df.groupby("MES", as_index=False)[COLUMNA_CANTIDAD].sum()
-            df_evo = df_evo.sort_values("MES", key=lambda x: x.map(_orden_mes_clave))
-            df_evo.to_excel(writer, sheet_name="Evolución Mensual", index=False)
+                    piv_est["INDICE_PICO"] = (
+                        piv_est["VENTA_PICO"] / piv_est["PROMEDIO_MENSUAL"]
+                    )
+                    piv_est["INDICE_PICO"] = piv_est["INDICE_PICO"].fillna(0).round(3)
 
-        # 7) CATEGORÍAS ESPECIALES (si está habilitada)
-        if habilitar_especiales:
-            filtros = filtros_especiales or {}
-            depto_filtro = filtros.get("departamentos", CATEGORIAS_ESPECIALES)
-            df_esp = df_pivot[df_pivot["Departamento"].str.contains("|".join(depto_filtro), case=False, na=False)]
-            if not df_esp.empty:
-                df_esp.to_excel(writer, sheet_name="Categorías Especiales", index=False)
+                    # Índices por mes (INDICE_ENERO, etc.)
+                    for mes in mes_cols:
+                        nombre_ind = f"INDICE_{mes}"
+                        piv_est[nombre_ind] = (
+                            piv_est[mes] / piv_est["PROMEDIO_MENSUAL"]
+                        )
+                        piv_est[nombre_ind] = piv_est[nombre_ind].fillna(0).round(3)
 
+                    cols_out = (
+                        idx_cols_est
+                        + [
+                            "VENTA_TOTAL_ANUAL",
+                            "PROMEDIO_MENSUAL",
+                            "MES_PICO",
+                            "VENTA_PICO",
+                            "INDICE_PICO",
+                        ]
+                        + [f"INDICE_{m}" for m in mes_cols]
+                    )
 
-def _generar_estacionalidad(df, meses_ordenados):
-    """
-    Genera tabla de estacionalidad con:
-    - Venta total anual
-    - Promedio mensual
-    - Mes de pico
-    - Venta en mes pico
-    - Índice estacional pico (en %)
-    - Índices por mes (en %)
-    """
-    idx_cols = ["IdArticulo", "Marca", "Descripcion", "Departamento", "SubFamilia", "Familia"]
+                    est_df = piv_est[cols_out]
+                    est_df.to_excel(writer, sheet_name="Estacionalidad", index=False)
 
-    # Crear tabla base consolidada
-    df_cons = df.pivot_table(
-        index=idx_cols,
-        columns="MES",
-        values="Cantidad",
-        aggfunc="sum",
-        fill_value=0,
-    ).reset_index()
+        # Fin with: se guarda el archivo aquí
 
-    # Calcular venta total anual (suma de todos los meses)
-    cols_meses = [m for m in meses_ordenados if m in df_cons.columns]
-    df_cons["Venta total año"] = df_cons[cols_meses].sum(axis=1).astype(int)
+    # -------- Estilos en todas las hojas (usando openpyxl) -------- #
 
-    # Calcular promedio mensual (total / número de meses con datos)
-    num_meses = len(cols_meses)
-    df_cons["Venta promedio mensual"] = (df_cons["Venta total año"] / num_meses).round(2)
+    wb = load_workbook(ruta_salida)
 
-    # Encontrar mes de pico (máximo de ventas)
-    def obtener_mes_pico(row):
-        valores_meses = [(m, row[m]) for m in cols_meses if pd.notna(row[m])]
-        if not valores_meses:
-            return None
-        mes_pico, _ = max(valores_meses, key=lambda x: x[1])
-        return mes_pico
+    # Consolidado
+    if "Consolidado" in wb.sheetnames:
+        ws = wb["Consolidado"]
+        num_filas = ws.max_row - 2
+        encabezados = [c.value for c in ws[1]]
+        _aplicar_estilos_fila2_generica(
+            ws, encabezados, EXPLICACIONES_CONSOLIDADO, num_filas
+        )
 
-    df_cons["Mes de pico"] = df_cons.apply(obtener_mes_pico, axis=1)
+    # Ranking de Ventas
+    if "Ranking de Ventas" in wb.sheetnames:
+        ws = wb["Ranking de Ventas"]
+        num_filas = ws.max_row - 2
+        encabezados = [c.value for c in ws[1]]
+        _aplicar_estilos_fila2_generica(
+            ws, encabezados, EXPLICACIONES_RANKING, num_filas
+        )
 
-    # Venta en mes pico
-    def obtener_venta_pico(row):
-        mes_pico = row["Mes de pico"]
-        if mes_pico and mes_pico in df_cons.columns:
-            return int(row[mes_pico])
-        return 0
+    # Por Sucursal
+    if "Por Sucursal" in wb.sheetnames:
+        ws = wb["Por Sucursal"]
+        num_filas = ws.max_row - 2
+        encabezados = [c.value for c in ws[1]]
+        _aplicar_estilos_fila2_generica(
+            ws, encabezados, EXPLICACIONES_POR_SUCURSAL, num_filas
+        )
 
-    df_cons["Venta en mes pico"] = df_cons.apply(obtener_venta_pico, axis=1)
+    # Matriz (Departamento x Sucursal)
+    if "Matriz" in wb.sheetnames:
+        ws = wb["Matriz"]
+        num_filas = ws.max_row - 2
+        encabezados = [c.value for c in ws[1]]
+        _aplicar_estilos_fila2_generica(
+        ws, encabezados, EXPLICACIONES_MATRIZ_DEPTO, num_filas
+        )
 
-    # Índice estacional pico (como %)
-    def calcular_indice_pico(row):
-        if row["Venta promedio mensual"] > 0:
-            indice = (row["Venta en mes pico"] / row["Venta promedio mensual"]) * 100
-            return f"{indice:.1f}%"
-        return "0%"
+    # Evolución Mensual
+    if "Evolución Mensual" in wb.sheetnames:
+        ws = wb["Evolución Mensual"]
+        num_filas = ws.max_row - 2
+        encabezados = [c.value for c in ws[1]]
+        _aplicar_estilos_fila2_generica(
+            ws, encabezados, EXPLICACIONES_EVOLUCION, num_filas
+        )
 
-    df_cons["Índice estacional pico"] = df_cons.apply(calcular_indice_pico, axis=1)
+    # Categorías Especiales
+    if "Categorias Especiales" in wb.sheetnames:
+        ws = wb["Categorias Especiales"]
+        num_filas = ws.max_row - 2
+        encabezados = [c.value for c in ws[1]]
+        _aplicar_estilos_fila2_generica(
+            ws, encabezados, EXPLICACIONES_CONSOLIDADO, num_filas
+        )
 
-    # Agregar índices por mes (en %)
-    for mes in cols_meses:
-        def calcular_indice_mes(row, m=mes):
-            if row["Venta promedio mensual"] > 0:
-                indice = (row[m] / row["Venta promedio mensual"]) * 100
-                return f"{indice:.1f}%"
-            return "0%"
+    # Estacionalidad
+    if "Estacionalidad" in wb.sheetnames:
+        ws = wb["Estacionalidad"]
+        num_filas = ws.max_row - 2
+        _aplicar_estilos_estacionalidad(ws, num_filas)
 
-        col_nombre = f"Índice {mes}"
-        df_cons[col_nombre] = df_cons.apply(calcular_indice_mes, axis=1)
-
-    # Seleccionar columnas finales (descriptivas + métricas + índices)
-    cols_finales = idx_cols + [
-        "Venta total año",
-        "Venta promedio mensual",
-        "Mes de pico",
-        "Venta en mes pico",
-        "Índice estacional pico",
-    ]
-
-    # Agregar índices por mes al final
-    cols_finales.extend([f"Índice {mes}" for mes in cols_meses])
-
-    df_estacionalidad = df_cons[cols_finales].copy()
-
-    return df_estacionalidad
+    wb.save(ruta_salida)
