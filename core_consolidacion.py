@@ -2,16 +2,12 @@
 
 import os
 import re
+from typing import List, Dict, Any, Optional, Tuple
+
 import pandas as pd
 
 from openpyxl import load_workbook
-from openpyxl.styles import (
-    PatternFill,
-    Font,
-    Alignment,
-    Border,
-    Side,
-)
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.formatting.rule import CellIsRule
 
 COLUMNA_CANTIDAD = "Cantidad"
@@ -19,7 +15,7 @@ COLUMNA_CANTIDAD = "Cantidad"
 COLUMNAS_DESCRIPTIVAS = ["Marca", "Descripcion", "Departamento", "SubFamilia", "Familia"]
 
 # Prioridades base (se pueden sobreescribir desde la GUI)
-PRIORIDAD_DEPARTAMENTOS_DEFAULT = {
+PRIORIDAD_DEPARTAMENTOS_DEFAULT: Dict[str, int] = {
     "BEBIDAS SIN ALCOHOL": 100,
     "ADITIVOS PARA LAVADOS": 100,
     "ALMACEN": 100,
@@ -33,9 +29,14 @@ PRIORIDAD_DEPARTAMENTOS_DEFAULT = {
     "ALIM VARIOS": 30,
 }
 
-CATEGORIAS_ESPECIALES = ["ELECTRO", "ELECTRODOMESTICOS", "FERRETERIA", "RODADOS"]
+CATEGORIAS_ESPECIALES: List[str] = [
+    "ELECTRO",
+    "ELECTRODOMESTICOS",
+    "FERRETERIA",
+    "RODADOS",
+]
 
-MESES_ES = [
+MESES_ES: List[str] = [
     "ENERO",
     "FEBRERO",
     "MARZO",
@@ -50,11 +51,11 @@ MESES_ES = [
     "DICIEMBRE",
 ]
 
-MAPA_MES = {m: i + 1 for i, m in enumerate(MESES_ES)}
+MAPA_MES: Dict[str, int] = {m: i + 1 for i, m in enumerate(MESES_ES)}
 
 # --------- Explicaciones para fila 2 en cada hoja --------- #
 
-EXPLICACIONES_CONSOLIDADO = {
+EXPLICACIONES_CONSOLIDADO: Dict[str, str] = {
     "IdArticulo": "Código único del producto",
     "Marca": "Nombre del fabricante",
     "Descripcion": "Nombre comercial del producto",
@@ -66,30 +67,30 @@ EXPLICACIONES_CONSOLIDADO = {
     "TOTAL CONSOLIDADO": "Sumatoria Corrientes + Hipermercado (período completo)",
 }
 
-EXPLICACIONES_RANKING = {
+EXPLICACIONES_RANKING: Dict[str, str] = {
     "IdArticulo": "Código único del producto",
     "Marca": "Nombre del fabricante",
     "Descripcion": "Nombre comercial del producto",
     "Total Vendido": "Unidades totales vendidas (todas las sucursales y meses)",
 }
 
-EXPLICACIONES_POR_SUCURSAL = {
+EXPLICACIONES_POR_SUCURSAL: Dict[str, str] = {
     "SUCURSAL": "Nombre de la sucursal",
     "TOTAL": "Unidades vendidas en todo el período",
 }
 
-EXPLICACIONES_MATRIZ_DEPTO = {
+EXPLICACIONES_MATRIZ_DEPTO: Dict[str, str] = {
     "Departamento": "Categoría principal de venta",
-    "CORRIENTES": "Unidades del departamento en sucursal Corrientes (período)",
-    "HIPER": "Unidades del departamento en sucursal Hipermercado (período)",
+    "CORRIENTES": "Unidades del departamento en Corrientes (período)",
+    "HIPER": "Unidades del departamento en Hipermercado (período)",
     "TOTAL": "Sumatoria Corrientes + Hiper (período)",
 }
 
-EXPLICACIONES_EVOLUCION = {
+EXPLICACIONES_EVOLUCION: Dict[str, str] = {
     "Departamento": "Categoría principal de venta",
 }
 
-EXPLICACIONES_ESTACIONALIDAD = {
+EXPLICACIONES_ESTACIONALIDAD: Dict[str, str] = {
     "IdArticulo": "Código único del producto",
     "Marca": "Nombre del fabricante",
     "Descripcion": "Nombre comercial del producto",
@@ -101,7 +102,7 @@ EXPLICACIONES_ESTACIONALIDAD = {
     "MES_PICO": "Mes con mayor venta",
     "VENTA_PICO": "Unidades en mes pico",
     "INDICE_PICO": "Mes pico ÷ promedio (%)",
-    # Índices por mes se generan dinámicamente: "[MES] ÷ promedio (%)"
+    # Los índices por mes se generan dinámicamente: "MES ÷ promedio (%)"
 }
 
 # ---------------------------------------------------------- #
@@ -115,7 +116,7 @@ def normalizar_mes(mes_str: str) -> str:
     raise ValueError(f"No se pudo normalizar mes desde: {mes_str}")
 
 
-def parsear_nombre_archivo(nombre: str):
+def parsear_nombre_archivo(nombre: str) -> Optional[Tuple[str, int, Optional[str]]]:
     """
     Devuelve (mes_str, anio_int, sucursal_str_o_None) o None si no se puede parsear.
     Espera algo tipo: '3. MARZO 2025 CORRIENTES.xlsx'
@@ -124,7 +125,7 @@ def parsear_nombre_archivo(nombre: str):
     base_up = base.upper().replace("  ", " ")
 
     # Buscar sucursal conocida
-    sucursal = None
+    sucursal: Optional[str] = None
     for s in ["HIPER", "CORRIENTES"]:
         if s in base_up:
             sucursal = s
@@ -146,7 +147,10 @@ def parsear_nombre_archivo(nombre: str):
     return mes_norm, anio, sucursal
 
 
-def consolidar_datos(archivos_info, prioridades_depto=None):
+def consolidar_datos(
+    archivos_info: List[Dict[str, Any]],
+    prioridades_depto: Optional[Dict[str, int]] = None,
+) -> pd.DataFrame:
     """
     archivos_info: lista de diccionarios:
         "ruta": str,
@@ -161,7 +165,7 @@ def consolidar_datos(archivos_info, prioridades_depto=None):
     else:
         prioridades = prioridades_depto
 
-    todos = []
+    todos: List[pd.DataFrame] = []
 
     for info in archivos_info:
         ruta = info["ruta"]
@@ -201,38 +205,38 @@ def consolidar_datos(archivos_info, prioridades_depto=None):
     if not todos:
         raise ValueError("No se pudo leer ningún archivo válido.")
 
-    df = pd.concat(todos, ignore_index=True)
+    df_all = pd.concat(todos, ignore_index=True)
 
     # Consolidar por prioridad de departamento
-    df["PRIORIDAD"] = df["Departamento"].map(prioridades).fillna(0)
-    df["CLAVE_PRODUCTO"] = (
-        df["IdArticulo"].astype(str)
+    df_all["PRIORIDAD"] = df_all["Departamento"].map(prioridades).fillna(0)
+    df_all["CLAVE_PRODUCTO"] = (
+        df_all["IdArticulo"].astype(str)
         + "|"
-        + df.get("Marca", "").astype(str)
+        + df_all.get("Marca", "").astype(str)
         + "|"
-        + df.get("Descripcion", "").astype(str)
+        + df_all.get("Descripcion", "").astype(str)
         + "|"
-        + df.get("SubFamilia", "").astype(str)
+        + df_all.get("SubFamilia", "").astype(str)
         + "|"
-        + df.get("Familia", "").astype(str)
+        + df_all.get("Familia", "").astype(str)
     )
 
-    idx_max = df.groupby("CLAVE_PRODUCTO")["PRIORIDAD"].idxmax()
-    dept_final = df.loc[idx_max, ["CLAVE_PRODUCTO", "Departamento"]].drop_duplicates(
+    idx_max = df_all.groupby("CLAVE_PRODUCTO")["PRIORIDAD"].idxmax()
+    dept_final = df_all.loc[idx_max, ["CLAVE_PRODUCTO", "Departamento"]].drop_duplicates(
         "CLAVE_PRODUCTO"
     )
 
-    df = df.drop(columns=["Departamento"])
-    df = df.merge(
+    df_all = df_all.drop(columns=["Departamento"])
+    df_all = df_all.merge(
         dept_final.rename(columns={"Departamento": "Departamento"}),
         on="CLAVE_PRODUCTO",
         how="left",
     )
 
-    df = df.drop(columns=["PRIORIDAD", "CLAVE_PRODUCTO"])
+    df_all = df_all.drop(columns=["PRIORIDAD", "CLAVE_PRODUCTO"])
 
     # Agrupar final
-    df = df.groupby(
+    df_all = df_all.groupby(
         [
             "IdArticulo",
             "Marca",
@@ -247,14 +251,14 @@ def consolidar_datos(archivos_info, prioridades_depto=None):
     )[COLUMNA_CANTIDAD].sum()
 
     # Redondeo
-    df[COLUMNA_CANTIDAD] = df[COLUMNA_CANTIDAD].apply(
+    df_all[COLUMNA_CANTIDAD] = df_all[COLUMNA_CANTIDAD].apply(
         lambda x: int(x + 0.5) if x >= 0 else int(x - 0.5)
     )
 
-    return df
+    return df_all
 
 
-def _orden_mes_clave(mes_ano: str):
+def _orden_mes_clave(mes_ano: str) -> Tuple[int, int]:
     # mes_ano: "MARZO 2025"
     partes = mes_ano.split()
     if len(partes) != 2:
@@ -265,12 +269,27 @@ def _orden_mes_clave(mes_ano: str):
     return (anio, mes_num)
 
 
-# --------- Estilos genéricos para fila 2 --------- #
+# --------- Helpers de estilo para Excel --------- #
 
 
-def _aplicar_estilos_fila2_generica(ws, encabezados, explicaciones_dict, num_filas_datos):
+def _col_letra(idx: int) -> str:
+    """Convierte índice de columna (1-based) a letra estilo Excel."""
+    result = ""
+    while idx:
+        idx, rem = divmod(idx - 1, 26)
+        result = chr(65 + rem) + result
+    return result
+
+
+def _aplicar_estilos_fila2_generica(
+    ws, encabezados: List[str], explicaciones_dict: Dict[str, str], num_filas_datos: int
+) -> None:
     """
-    Aplica estilos profesionales a fila 2 (explicaciones) para cualquier hoja.
+    Aplica estilos a la fila 2 (explicaciones) para cualquier hoja:
+    - Fondo gris claro
+    - Texto itálico tamaño 9
+    - Bordes finos
+    - Alineación centrada con wrap_text
     """
     fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
     font = Font(italic=True, size=9)
@@ -282,37 +301,34 @@ def _aplicar_estilos_fila2_generica(ws, encabezados, explicaciones_dict, num_fil
         bottom=Side(style="thin"),
     )
 
-    # Fila 2
     for col_idx, encabezado in enumerate(encabezados, start=1):
         cell = ws.cell(row=2, column=col_idx)
 
-        # Lógica especial según patrón de nombre
+        # 1) Explicación fija por nombre exacto
         valor = explicaciones_dict.get(encabezado)
 
-        # Consolidado / Categorías Especiales: MES_AAAA_SUCURSAL
+        # 2) Patrones dinámicos
+
+        # Consolidado / Categorías Especiales: "MARZO 2025_CORRIENTES"
         if valor is None and "_" in encabezado and " " in encabezado:
-            # ejemplo: "MARZO 2025_CORRIENTES"
-            partes = encabezado.split("_", 1)
-            mes_anio = partes[0]
-            suc = partes[1]
+            mes_anio, suc = encabezado.split("_", 1)
             valor = f"Unidades {mes_anio} en {suc}"
 
-        # Por Sucursal: columnas de meses
-        if valor is None and encabezado in MESES_ES:
-            valor = f"Unidades vendidas en {encabezado.title()}"
-
-        # Evolución Mensual: meses en columnas
+        # Por Sucursal / Evolución: columnas de meses "MARZO 2025"
         if valor is None and any(m in encabezado for m in MESES_ES):
-            valor = f"Unidades del departamento en {encabezado}"
+            if encabezados and encabezados[0] == "Departamento":
+                valor = f"Unidades del departamento en {encabezado}"
+            else:
+                valor = f"Unidades vendidas en {encabezado}"
 
-        # Estacionalidad: índices por mes
+        # Estacionalidad: índices por mes "INDICE_MARZO 2025"
         if (
             valor is None
             and encabezado.upper().startswith("INDICE_")
             and encabezado != "INDICE_PICO"
         ):
-            mes = encabezado.replace("INDICE_", "")
-            valor = f"{mes.title()} ÷ promedio (%)"
+            mes_txt = encabezado.replace("INDICE_", "")
+            valor = f"{mes_txt} ÷ promedio (%)"
 
         if valor is None:
             valor = encabezado
@@ -323,63 +339,65 @@ def _aplicar_estilos_fila2_generica(ws, encabezados, explicaciones_dict, num_fil
         cell.alignment = alignment
         cell.border = border
 
-    # Alto fila 2
+    # Alto de la fila 2
     ws.row_dimensions[2].height = 30
 
-    # Bordes datos
+    # Bordes y alineación en filas de datos (3 en adelante)
     thin_border = Border(
         left=Side(style="thin"),
         right=Side(style="thin"),
         top=Side(style="thin"),
         bottom=Side(style="thin"),
     )
+
     for row in range(3, num_filas_datos + 3):
         for col in range(1, len(encabezados) + 1):
             cell = ws.cell(row=row, column=col)
             cell.border = thin_border
 
-            # Alineación texto vs números (heurística simple)
+            # Heurística simple: primeras columnas texto, resto números
             if col <= 6 or isinstance(cell.value, str):
                 cell.alignment = Alignment(horizontal="left", vertical="center")
             else:
                 cell.alignment = Alignment(horizontal="right", vertical="center")
 
 
-def _aplicar_estilos_estacionalidad(ws, num_filas_datos):
+def _aplicar_estilos_estacionalidad(ws, num_filas_datos: int) -> None:
     """
-    Aplica:
-    - Fila 2 con explicaciones y estilos
-    - Formato porcentaje en columnas de índices
-    - Formato condicional verde/amarillo/rojo sobre INDICE_PICO
+    Estilos específicos para la hoja Estacionalidad:
+    - Fila 2 con explicaciones
+    - Formato porcentaje 0.0% en todas las columnas INDICE_*
+    - Formato condicional verde/amarillo/rojo en INDICE_PICO
     """
-    encabezados = [cell.value for cell in ws[1]]
+    encabezados = [c.value for c in ws[1]]
     _aplicar_estilos_fila2_generica(
         ws, encabezados, EXPLICACIONES_ESTACIONALIDAD, num_filas_datos
     )
 
-    # Columnas de índices (INDICE_PICO + INDICE_ENERO..INDICE_DICIEMBRE)
-    col_indices = []
-    for idx, nombre in enumerate(encabezados, start=1):
-        if nombre and nombre.startswith("INDICE_"):
-            col_indices.append(idx)
+    # Columnas de índices (INDICE_PICO + INDICE_MES...)
+    col_indices: List[int] = []
+    col_pico_idx: Optional[int] = None
 
-    # Formato porcentaje 0.0%
+    for idx, nombre in enumerate(encabezados, start=1):
+        if not nombre:
+            continue
+        if nombre.startswith("INDICE_"):
+            col_indices.append(idx)
+        if nombre == "INDICE_PICO":
+            col_pico_idx = idx
+
+    # Formato porcentaje 0.0% en todas las columnas de índice
     for col_idx in col_indices:
         for row in range(3, num_filas_datos + 3):
             cell = ws.cell(row=row, column=col_idx)
             cell.number_format = "0.0%"
 
-    # Formato condicional sobre INDICE_PICO (si existe)
-    col_pico = None
-    for idx, nombre in enumerate(encabezados, start=1):
-        if nombre == "INDICE_PICO":
-            col_pico = idx
-            break
-
-    if col_pico is None:
+    # Formato condicional solo sobre INDICE_PICO
+    if col_pico_idx is None:
         return
 
-    rango = f"{_col_letra(col_pico)}3:{_col_letra(col_pico)}{num_filas_datos + 2}"
+    col_letra = _col_letra(col_pico_idx)
+    rango = f"{col_letra}3:{col_letra}{num_filas_datos + 2}"
 
     verde_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
     verde_font = Font(bold=True, color="006100")
@@ -392,16 +410,13 @@ def _aplicar_estilos_estacionalidad(ws, num_filas_datos):
     )
     amarillo_font = Font(bold=True, color="9C6500")
     regla_amarillo = CellIsRule(
-        operator="between",
-        formula=["1.0", "1.10"],  # 100%–110%
-        fill=amarillo_fill,
-        font=amarillo_font,
+        operator="between", formula=["0.90", "1.10"], fill=amarillo_fill, font=amarillo_font
     )
 
     rojo_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
     rojo_font = Font(bold=True, color="9C0006")
     regla_rojo = CellIsRule(
-        operator="lessThan", formula=["1.0"], fill=rojo_fill, font=rojo_font
+        operator="lessThan", formula=["0.90"], fill=rojo_fill, font=rojo_font
     )
 
     ws.conditional_formatting.add(rango, regla_verde)
@@ -409,32 +424,27 @@ def _aplicar_estilos_estacionalidad(ws, num_filas_datos):
     ws.conditional_formatting.add(rango, regla_rojo)
 
 
-def _col_letra(idx):
-    """Convierte índice de columna (1-based) a letra estilo Excel."""
-    result = ""
-    while idx:
-        idx, rem = divmod(idx - 1, 26)
-        result = chr(65 + rem) + result
-    return result
-
-
 # ---------------------------------------------------------- #
 
 
 def generar_reportes(
-    df,
-    ruta_salida,
-    columnas_consolidado=None,
-    habilitar_ranking=True,
-    habilitar_por_sucursal=True,
-    habilitar_matriz=True,
-    habilitar_evolucion=True,
-    habilitar_especiales=True,
-    filtros_especiales=None,
-    habilitar_estacionalidad=False,
-):
+    df: pd.DataFrame,
+    ruta_salida: str,
+    columnas_consolidado: Optional[List[str]] = None,
+    habilitar_ranking: bool = True,
+    habilitar_por_sucursal: bool = True,
+    habilitar_matriz: bool = True,
+    habilitar_evolucion: bool = True,
+    habilitar_especiales: bool = True,
+    filtros_especiales: Optional[Dict[str, List[str]]] = None,
+    habilitar_estacionalidad: bool = False,
+) -> None:
     """
-    Genera reportes en un solo Excel, con opciones.
+    Genera reportes en un solo Excel, con opciones:
+    - columnas_consolidado: nombres de columnas en el orden deseado.
+    - habilitar_*: booleans para crear o no cada hoja adicional.
+    - filtros_especiales: dict opcional {"departamentos": [...], "marcas": [...]}.
+    - habilitar_estacionalidad: si True, genera hoja con índice estacional.
     """
     meses_ordenados = sorted(df["MES"].unique(), key=_orden_mes_clave)
     sucursales = sorted(df["SUCURSAL"].dropna().unique())
@@ -465,9 +475,9 @@ def generar_reportes(
             if col not in idx_cols:
                 df_pivot[col] = df_pivot[col].astype(int)
 
-        # Columnas por defecto
         cols_def = idx_cols.copy()
 
+        # Totales por mes (sin sucursal)
         for mes in meses_ordenados:
             cols_mes = [c for c in df_pivot.columns if c.startswith(mes + "_")]
             if not cols_mes:
@@ -475,7 +485,8 @@ def generar_reportes(
             df_pivot[mes] = df_pivot[cols_mes].sum(axis=1).astype(int)
             cols_def.append(mes)
 
-        total_cols = []
+        # Totales por sucursal y consolidado
+        total_cols: List[str] = []
         for suc in sucursales:
             cols_suc = [c for c in df_pivot.columns if c.endswith("_" + suc)]
             if not cols_suc:
@@ -488,7 +499,7 @@ def generar_reportes(
             df_pivot["TOTAL CONSOLIDADO"] = df_pivot[total_cols].sum(axis=1).astype(int)
             cols_def.extend(total_cols + ["TOTAL CONSOLIDADO"])
 
-        # Aplicar orden personalizado si viene desde GUI
+        # Orden personalizado desde la GUI
         if columnas_consolidado:
             orden = [c for c in columnas_consolidado if c in df_pivot.columns]
             extras = [c for c in df_pivot.columns if c not in orden]
@@ -496,8 +507,8 @@ def generar_reportes(
         else:
             cols_finales = cols_def
 
-        df_final = (
-            df_pivot[cols_finales].sort_values("IdArticulo").reset_index(drop=True)
+        df_final = df_pivot[cols_finales].sort_values("IdArticulo").reset_index(
+            drop=True
         )
         df_final.to_excel(writer, sheet_name="Consolidado", index=False)
 
@@ -608,7 +619,7 @@ def generar_reportes(
                     piv[mes] = piv[cols_mes].sum(axis=1).astype(int)
                     cols_espec_final.append(mes)
 
-                total_cols_espec = []
+                total_cols_espec: List[str] = []
                 for suc in sucursales:
                     cols_suc = [c for c in piv.columns if c.endswith("_" + suc)]
                     if not cols_suc:
@@ -657,10 +668,7 @@ def generar_reportes(
                 ).reset_index()
 
                 mes_cols = [m for m in meses_ordenados if m in piv_est.columns]
-                if not mes_cols:
-                    # sin meses no tiene sentido la hoja
-                    pass
-                else:
+                if mes_cols:
                     piv_est["VENTA_TOTAL_ANUAL"] = piv_est[mes_cols].sum(axis=1)
                     n_meses = len(mes_cols)
                     piv_est["PROMEDIO_MENSUAL"] = (
@@ -672,20 +680,21 @@ def generar_reportes(
 
                     piv_est["MES_PICO"] = piv_est[mes_cols].idxmax(axis=1)
 
-                    def _venta_pico(row):
+                    def _venta_pico(row: pd.Series) -> float:
                         mes = row["MES_PICO"]
                         if pd.isna(mes):
-                            return 0
-                        return row.get(mes, 0)
+                            return 0.0
+                        return float(row.get(mes, 0.0))
 
                     piv_est["VENTA_PICO"] = piv_est.apply(_venta_pico, axis=1)
 
+                    # Índice del mes pico
                     piv_est["INDICE_PICO"] = (
                         piv_est["VENTA_PICO"] / piv_est["PROMEDIO_MENSUAL"]
                     )
                     piv_est["INDICE_PICO"] = piv_est["INDICE_PICO"].fillna(0).round(3)
 
-                    # Índices por mes (INDICE_ENERO, etc.)
+                    # Índices por mes (INDICE_MARZO 2025, etc.)
                     for mes in mes_cols:
                         nombre_ind = f"INDICE_{mes}"
                         piv_est[nombre_ind] = (
@@ -708,70 +717,67 @@ def generar_reportes(
                     est_df = piv_est[cols_out]
                     est_df.to_excel(writer, sheet_name="Estacionalidad", index=False)
 
-        # Fin with: se guarda el archivo aquí
-
-    # -------- Estilos en todas las hojas (usando openpyxl) -------- #
-
+    # === Después de escribir el Excel: aplicar estilos con openpyxl ===
     wb = load_workbook(ruta_salida)
 
-    # Consolidado
+    # 1) Consolidado
     if "Consolidado" in wb.sheetnames:
         ws = wb["Consolidado"]
-        num_filas = ws.max_row - 2
+        num_filas = max(ws.max_row - 2, 0)
         encabezados = [c.value for c in ws[1]]
         _aplicar_estilos_fila2_generica(
             ws, encabezados, EXPLICACIONES_CONSOLIDADO, num_filas
         )
 
-    # Ranking de Ventas
+    # 2) Ranking de Ventas
     if "Ranking de Ventas" in wb.sheetnames:
         ws = wb["Ranking de Ventas"]
-        num_filas = ws.max_row - 2
+        num_filas = max(ws.max_row - 2, 0)
         encabezados = [c.value for c in ws[1]]
         _aplicar_estilos_fila2_generica(
             ws, encabezados, EXPLICACIONES_RANKING, num_filas
         )
 
-    # Por Sucursal
+    # 3) Por Sucursal
     if "Por Sucursal" in wb.sheetnames:
         ws = wb["Por Sucursal"]
-        num_filas = ws.max_row - 2
+        num_filas = max(ws.max_row - 2, 0)
         encabezados = [c.value for c in ws[1]]
         _aplicar_estilos_fila2_generica(
             ws, encabezados, EXPLICACIONES_POR_SUCURSAL, num_filas
         )
 
-    # Matriz (Departamento x Sucursal)
+    # 4) Matriz por Departamento
     if "Matriz" in wb.sheetnames:
         ws = wb["Matriz"]
-        num_filas = ws.max_row - 2
+        num_filas = max(ws.max_row - 2, 0)
         encabezados = [c.value for c in ws[1]]
         _aplicar_estilos_fila2_generica(
-        ws, encabezados, EXPLICACIONES_MATRIZ_DEPTO, num_filas
+            ws, encabezados, EXPLICACIONES_MATRIZ_DEPTO, num_filas
         )
 
-    # Evolución Mensual
+    # 5) Evolución Mensual
     if "Evolución Mensual" in wb.sheetnames:
         ws = wb["Evolución Mensual"]
-        num_filas = ws.max_row - 2
+        num_filas = max(ws.max_row - 2, 0)
         encabezados = [c.value for c in ws[1]]
         _aplicar_estilos_fila2_generica(
             ws, encabezados, EXPLICACIONES_EVOLUCION, num_filas
         )
 
-    # Categorías Especiales
+    # 6) Categorías Especiales
     if "Categorias Especiales" in wb.sheetnames:
         ws = wb["Categorias Especiales"]
-        num_filas = ws.max_row - 2
+        num_filas = max(ws.max_row - 2, 0)
         encabezados = [c.value for c in ws[1]]
         _aplicar_estilos_fila2_generica(
             ws, encabezados, EXPLICACIONES_CONSOLIDADO, num_filas
         )
 
-    # Estacionalidad
+    # 7) Estacionalidad
     if "Estacionalidad" in wb.sheetnames:
         ws = wb["Estacionalidad"]
-        num_filas = ws.max_row - 2
+        num_filas = max(ws.max_row - 2, 0)
         _aplicar_estilos_estacionalidad(ws, num_filas)
 
     wb.save(ruta_salida)
