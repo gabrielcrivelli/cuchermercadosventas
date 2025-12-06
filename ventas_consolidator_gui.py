@@ -3,8 +3,10 @@
 import os
 import threading
 from datetime import datetime
+
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
+
 from core_consolidacion import (
     parsear_nombre_archivo,
     consolidar_datos,
@@ -16,36 +18,70 @@ from core_consolidacion import (
 class VentasConsolidatorGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Consolidador de Ventas - Cucher Mercados")
-        self.root.geometry("1100x750")
-        self.root.minsize(900, 650)
+        self.root.title("Consolidador de Ventas")
+        self.root.geometry("1100x700")
+        self.root.minsize(900, 600)
 
         # --- Colores modo oscuro ---
-        self.bg_color = "#1e1e1e"
-        self.fg_color = "#ffffff"
+        self.bg_color = "#1e1e1e"  # fondo principal
+        self.fg_color = "#ffffff"  # texto
         self.accent_color = "#3a7bd5"
+
         self._setup_styles()
 
         # Datos de estado
-        self.archivos = []
+        self.archivos = []  # lista de dicts: {ruta, mes, anio, sucursal}
         self.anio_var = tk.IntVar(value=datetime.now().year)
         self.meses_vars = {m: tk.BooleanVar(value=True) for m in MESES_ES}
         self.sucursales_extra_var = tk.StringVar()
 
         # Columnas disponibles / seleccionadas para 'Consolidado'
         self.columnas_disponibles_default = [
-            "IdArticulo", "Marca", "Descripcion", "Departamento", "SubFamilia", "Familia",
-            "ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO",
-            "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE",
-            "OCTUBRE", "NOVIEMBRE", "DICIEMBRE",
-            "TOTAL CORRIENTES", "TOTAL HIPER", "TOTAL CONSOLIDADO",
+            "IdArticulo",
+            "Marca",
+            "Descripcion",
+            "Departamento",
+            "SubFamilia",
+            "Familia",
+            "ENERO",
+            "FEBRERO",
+            "MARZO",
+            "ABRIL",
+            "MAYO",
+            "JUNIO",
+            "JULIO",
+            "AGOSTO",
+            "SEPTIEMBRE",
+            "OCTUBRE",
+            "NOVIEMBRE",
+            "DICIEMBRE",
+            "TOTAL CORRIENTES",
+            "TOTAL HIPER",
+            "TOTAL CONSOLIDADO",
         ]
 
         self.columnas_seleccionadas_inicial = [
-            "IdArticulo", "Marca", "Descripcion", "Departamento", "SubFamilia", "Familia",
-            "ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO",
-            "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE",
-            "TOTAL CORRIENTES", "TOTAL HIPER", "TOTAL CONSOLIDADO",
+            "IdArticulo",
+            "Marca",
+            "Descripcion",
+            "Departamento",
+            "SubFamilia",
+            "Familia",
+            "ENERO",
+            "FEBRERO",
+            "MARZO",
+            "ABRIL",
+            "MAYO",
+            "JUNIO",
+            "JULIO",
+            "AGOSTO",
+            "SEPTIEMBRE",
+            "OCTUBRE",
+            "NOVIEMBRE",
+            "DICIEMBRE",
+            "TOTAL CORRIENTES",
+            "TOTAL HIPER",
+            "TOTAL CONSOLIDADO",
         ]
 
         # Flags de hojas a generar
@@ -54,7 +90,7 @@ class VentasConsolidatorGUI:
         self.habilitar_matriz_var = tk.BooleanVar(value=True)
         self.habilitar_evolucion_var = tk.BooleanVar(value=True)
         self.habilitar_especiales_var = tk.BooleanVar(value=True)
-        self.habilitar_estacionalidad_var = tk.BooleanVar(value=True)  # Habilitado por defecto
+        self.habilitar_estacionalidad_var = tk.BooleanVar(value=True)
 
         # Filtros de categorías especiales
         self.especiales_deps_var = tk.StringVar()
@@ -83,13 +119,9 @@ class VentasConsolidatorGUI:
                 "departamentos y/o marcas filtrados."
             ),
             "estacionalidad": (
-                "Estacionalidad: para cada producto, muestra:\n"
-                "- Venta total anual\n"
-                "- Venta promedio por mes\n"
-                "- Mes con mayor venta\n"
-                "- Índice estacional (mes pico vs promedio en %)\n"
-                "- Índices por cada mes del año\n\n"
-                "Formato condicional: Verde (>110%), Amarillo (90-110%), Rojo (<90%)"
+                "Estacionalidad: para cada producto, calcula en qué mes del año se "
+                "concentran más sus ventas y cuánto por encima del promedio mensual "
+                "se encuentra ese mes (índice estacional)."
             ),
         }
 
@@ -106,18 +138,26 @@ class VentasConsolidatorGUI:
             pass
 
         self.root.configure(bg=self.bg_color)
+
         style.configure("TFrame", background=self.bg_color, foreground=self.fg_color)
         style.configure("TLabelframe", background=self.bg_color, foreground=self.fg_color)
-        style.configure("TLabelframe.Label", background=self.bg_color, foreground=self.fg_color)
+        style.configure(
+            "TLabelframe.Label", background=self.bg_color, foreground=self.fg_color
+        )
         style.configure("TLabel", background=self.bg_color, foreground=self.fg_color)
-        style.configure("TCheckbutton", background=self.bg_color, foreground=self.fg_color)
+        style.configure(
+            "TCheckbutton", background=self.bg_color, foreground=self.fg_color
+        )
+
         style.configure("TButton", background="#333333", foreground=self.fg_color)
         style.map(
             "TButton",
             background=[("active", "#444444")],
             foreground=[("disabled", "#777777")],
         )
+
         style.configure("TEntry", fieldbackground="#2b2b2b", foreground=self.fg_color)
+
         style.configure(
             "Treeview",
             background="#2b2b2b",
@@ -131,21 +171,35 @@ class VentasConsolidatorGUI:
             background=[("selected", "#444444")],
             foreground=[("selected", self.fg_color)],
         )
-        style.configure("Treeview.Heading", background="#333333", foreground=self.fg_color)
+        style.configure(
+            "Treeview.Heading", background="#333333", foreground=self.fg_color
+        )
 
     # ---------- Scroll general ----------
     def _build_scroll_container(self):
         self.root.rowconfigure(0, weight=1)
         self.root.columnconfigure(0, weight=1)
+
         self.canvas = tk.Canvas(self.root, highlightthickness=0, bg=self.bg_color)
-        self.v_scroll = ttk.Scrollbar(self.root, orient="vertical", command=self.canvas.yview)
-        self.h_scroll = ttk.Scrollbar(self.root, orient="horizontal", command=self.canvas.xview)
-        self.canvas.configure(yscrollcommand=self.v_scroll.set, xscrollcommand=self.h_scroll.set)
+        self.v_scroll = ttk.Scrollbar(
+            self.root, orient="vertical", command=self.canvas.yview
+        )
+        self.h_scroll = ttk.Scrollbar(
+            self.root, orient="horizontal", command=self.canvas.xview
+        )
+        self.canvas.configure(
+            yscrollcommand=self.v_scroll.set, xscrollcommand=self.h_scroll.set
+        )
+
         self.canvas.grid(row=0, column=0, sticky="nsew")
         self.v_scroll.grid(row=0, column=1, sticky="ns")
         self.h_scroll.grid(row=1, column=0, sticky="ew")
+
         self.content_frame = ttk.Frame(self.canvas)
-        self.canvas_window = self.canvas.create_window((0, 0), window=self.content_frame, anchor="nw")
+        self.canvas_window = self.canvas.create_window(
+            (0, 0), window=self.content_frame, anchor="nw"
+        )
+
         self.content_frame.bind("<Configure>", self._on_frame_configure)
         self.canvas.bind("<Configure>", self._on_canvas_configure)
 
@@ -169,6 +223,7 @@ class VentasConsolidatorGUI:
         ttk.Label(frame_top, text="Meses a procesar:").grid(row=0, column=2, sticky="w")
         frame_meses = ttk.Frame(frame_top)
         frame_meses.grid(row=0, column=3, sticky="w")
+
         for i, mes in enumerate(MESES_ES):
             ttk.Checkbutton(
                 frame_meses, text=mes.title(), variable=self.meses_vars[mes]
@@ -177,36 +232,46 @@ class VentasConsolidatorGUI:
         # Sucursales adicionales
         frame_suc_extra = ttk.Frame(parent, padding=(10, 0, 10, 10))
         frame_suc_extra.pack(fill="x")
-        ttk.Label(frame_suc_extra, text="Sucursales adicionales (texto libre):").pack(side="left")
-        ttk.Entry(frame_suc_extra, textvariable=self.sucursales_extra_var, width=50).pack(
-            side="left", padx=5
-        )
 
-        # ---- Archivos Excel ----
+        ttk.Label(
+            frame_suc_extra, text="Sucursales adicionales (texto libre):"
+        ).pack(side="left")
+        ttk.Entry(
+            frame_suc_extra, textvariable=self.sucursales_extra_var, width=50
+        ).pack(side="left", padx=5)
+
+        # ---- Archivos Excel (arriba) ----
         frame_archivos = ttk.LabelFrame(parent, text="Archivos Excel", padding=10)
         frame_archivos.pack(fill="x", padx=10, pady=(0, 5))
-        ttk.Button(frame_archivos, text="Agregar archivos...", command=self.agregar_archivos).pack(
-            anchor="w"
-        )
+
+        ttk.Button(
+            frame_archivos, text="Agregar archivos...", command=self.agregar_archivos
+        ).pack(anchor="w")
 
         tree_frame = ttk.Frame(frame_archivos)
         tree_frame.pack(fill="x", expand=False, pady=5)
+
         cols = ("ruta", "mes", "anio", "sucursal", "estado")
         self.tree = ttk.Treeview(tree_frame, columns=cols, show="headings", height=6)
+
         for c in cols:
             self.tree.heading(c, text=c.upper())
             self.tree.column(c, width=150 if c != "ruta" else 400, anchor="w")
 
         tree_vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
-        tree_hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.tree.xview)
+        tree_hsb = ttk.Scrollbar(
+            tree_frame, orient="horizontal", command=self.tree.xview
+        )
         self.tree.configure(yscrollcommand=tree_vsb.set, xscrollcommand=tree_hsb.set)
+
         tree_frame.rowconfigure(0, weight=1)
         tree_frame.columnconfigure(0, weight=1)
+
         self.tree.grid(row=0, column=0, sticky="nsew")
         tree_vsb.grid(row=0, column=1, sticky="ns")
         tree_hsb.grid(row=1, column=0, sticky="ew")
 
-        # ---- Configurar Excel Resultado ----
+        # ---- Debajo: Configurar Excel Resultado ----
         frame_opts = ttk.LabelFrame(parent, text="Configurar Excel Resultado", padding=10)
         frame_opts.pack(fill="both", expand=True, padx=10, pady=(0, 5))
 
@@ -214,7 +279,9 @@ class VentasConsolidatorGUI:
         frame_cols = ttk.Frame(frame_opts)
         frame_cols.pack(side="left", fill="y", padx=(0, 20))
 
-        ttk.Label(frame_cols, text="Columnas disponibles:").grid(row=0, column=0, sticky="w")
+        ttk.Label(frame_cols, text="Columnas disponibles:").grid(
+            row=0, column=0, sticky="w"
+        )
         ttk.Label(
             frame_cols, text="Columnas seleccionadas (orden de salida):"
         ).grid(row=0, column=2, sticky="w")
@@ -244,21 +311,23 @@ class VentasConsolidatorGUI:
 
         frame_btn_cols_mid = ttk.Frame(frame_cols)
         frame_btn_cols_mid.grid(row=1, column=1, padx=5)
-        ttk.Button(frame_btn_cols_mid, text="Agregar →", command=self._col_agregar).pack(
-            fill="x", pady=2
-        )
-        ttk.Button(frame_btn_cols_mid, text="← Quitar", command=self._col_quitar).pack(
-            fill="x", pady=2
-        )
+
+        ttk.Button(
+            frame_btn_cols_mid, text="Agregar →", command=self._col_agregar
+        ).pack(fill="x", pady=2)
+        ttk.Button(
+            frame_btn_cols_mid, text="← Quitar", command=self._col_quitar
+        ).pack(fill="x", pady=2)
 
         frame_btn_cols_right = ttk.Frame(frame_cols)
         frame_btn_cols_right.grid(row=1, column=3, padx=5, sticky="n")
-        ttk.Button(frame_btn_cols_right, text="Subir", command=self._mover_col_arriba).pack(
-            fill="x", pady=2
-        )
-        ttk.Button(frame_btn_cols_right, text="Bajar", command=self._mover_col_abajo).pack(
-            fill="x", pady=2
-        )
+
+        ttk.Button(
+            frame_btn_cols_right, text="Subir", command=self._mover_col_arriba
+        ).pack(fill="x", pady=2)
+        ttk.Button(
+            frame_btn_cols_right, text="Bajar", command=self._mover_col_abajo
+        ).pack(fill="x", pady=2)
 
         ttk.Label(frame_cols, text="Agregar columna manualmente:").grid(
             row=2, column=0, columnspan=2, sticky="w", pady=(8, 0)
@@ -267,10 +336,13 @@ class VentasConsolidatorGUI:
         self.col_custom_var = tk.StringVar()
         frame_custom = ttk.Frame(frame_cols)
         frame_custom.grid(row=3, column=0, columnspan=2, sticky="w")
-        ttk.Entry(frame_custom, textvariable=self.col_custom_var, width=30).pack(side="left")
-        ttk.Button(frame_custom, text="Agregar", command=self._col_agregar_custom).pack(
-            side="left", padx=4
+
+        ttk.Entry(frame_custom, textvariable=self.col_custom_var, width=30).pack(
+            side="left"
         )
+        ttk.Button(
+            frame_custom, text="Agregar", command=self._col_agregar_custom
+        ).pack(side="left", padx=4)
 
         # Hojas a generar + ayuda
         frame_checks = ttk.Frame(frame_opts)
@@ -289,35 +361,72 @@ class VentasConsolidatorGUI:
                 command=lambda: self._explicar_hoja(clave_help, titulo_help),
             ).pack(side="left", padx=3)
 
-        add_hoja_row("Ranking de Ventas", self.habilitar_ranking_var, "ranking", "Ranking de Ventas")
-        add_hoja_row("Ventas por Sucursal", self.habilitar_por_suc_var, "sucursal", "Ventas por Sucursal")
-        add_hoja_row("Matriz por Departamento", self.habilitar_matriz_var, "matriz", "Matriz por Departamento")
-        add_hoja_row("Evolución Mensual", self.habilitar_evolucion_var, "evolucion", "Evolución Mensual")
-        add_hoja_row("Categorías Especiales", self.habilitar_especiales_var, "especiales", "Categorías Especiales")
-        add_hoja_row("Estacionalidad", self.habilitar_estacionalidad_var, "estacionalidad", "Estacionalidad")
+        add_hoja_row(
+            "Ranking de Ventas", self.habilitar_ranking_var, "ranking", "Ranking de Ventas"
+        )
+        add_hoja_row(
+            "Ventas por Sucursal",
+            self.habilitar_por_suc_var,
+            "sucursal",
+            "Ventas por Sucursal",
+        )
+        add_hoja_row(
+            "Matriz por Departamento",
+            self.habilitar_matriz_var,
+            "matriz",
+            "Matriz por Departamento",
+        )
+        add_hoja_row(
+            "Evolución Mensual",
+            self.habilitar_evolucion_var,
+            "evolucion",
+            "Evolución Mensual",
+        )
+        add_hoja_row(
+            "Categorías Especiales",
+            self.habilitar_especiales_var,
+            "especiales",
+            "Categorías Especiales",
+        )
+        add_hoja_row(
+            "Estacionalidad",
+            self.habilitar_estacionalidad_var,
+            "estacionalidad",
+            "Estacionalidad",
+        )
 
         # Filtros de categorías especiales
         frame_espec = ttk.Frame(frame_opts)
         frame_espec.pack(side="left", fill="both", expand=True, padx=(20, 0))
 
-        ttk.Label(frame_espec, text="Categorías Especiales - filtros opcionales").pack(anchor="w")
+        ttk.Label(
+            frame_espec, text="Categorías Especiales - filtros opcionales"
+        ).pack(anchor="w")
 
-        ttk.Label(frame_espec, text="Departamentos (separados por coma):").pack(anchor="w")
+        ttk.Label(
+            frame_espec, text="Departamentos (separados por coma):"
+        ).pack(anchor="w")
         ttk.Entry(frame_espec, textvariable=self.especiales_deps_var, width=45).pack(
             anchor="w", pady=(0, 5)
         )
 
         ttk.Label(frame_espec, text="Marcas (separadas por coma):").pack(anchor="w")
-        ttk.Entry(frame_espec, textvariable=self.especiales_marcas_var, width=45).pack(anchor="w")
+        ttk.Entry(frame_espec, textvariable=self.especiales_marcas_var, width=45).pack(
+            anchor="w"
+        )
 
         # ---- Zona inferior: botón + log ----
         frame_bottom = ttk.Frame(parent, padding=10)
         frame_bottom.pack(fill="x", expand=False)
 
-        self.btn_procesar = ttk.Button(frame_bottom, text="Procesar", command=self.procesar_async)
+        self.btn_procesar = ttk.Button(
+            frame_bottom, text="Procesar", command=self.procesar_async
+        )
         self.btn_procesar.pack(side="top", anchor="w")
 
-        self.log_text = scrolledtext.ScrolledText(frame_bottom, height=5, state="disabled", wrap="word")
+        self.log_text = scrolledtext.ScrolledText(
+            frame_bottom, height=4, state="disabled", wrap="word"
+        )
         self.log_text.pack(fill="x", expand=False, padx=10, pady=(5, 0))
         self.log_text.configure(
             background=self.bg_color,
@@ -341,7 +450,6 @@ class VentasConsolidatorGUI:
             title="Seleccionar archivos Excel",
             filetypes=[("Archivos Excel", "*.xlsx *.xls")],
         )
-
         if not rutas:
             return
 
@@ -354,16 +462,15 @@ class VentasConsolidatorGUI:
         for ruta in rutas:
             info = {"ruta": ruta, "mes": None, "anio": None, "sucursal": None}
             parsed = parsear_nombre_archivo(os.path.basename(ruta))
-            estado = "OK"
-
             if parsed:
                 mes, anio, sucursal = parsed
                 info["mes"] = mes
                 info["anio"] = anio
                 info["sucursal"] = sucursal if sucursal else "DESCONOCIDA"
-
                 if anio != anio_sel:
                     estado = f"AÑO {anio}≠{anio_sel}"
+                else:
+                    estado = "OK"
             else:
                 estado = "No detectado"
 
@@ -371,7 +478,13 @@ class VentasConsolidatorGUI:
             self.tree.insert(
                 "",
                 "end",
-                values=(ruta, info["mes"] or "", info["anio"] or "", info["sucursal"] or "", estado),
+                values=(
+                    ruta,
+                    info["mes"] or "",
+                    info["anio"] or "",
+                    info["sucursal"] or "",
+                    estado,
+                ),
             )
 
         self.log(f"{len(rutas)} archivos agregados.")
@@ -400,7 +513,10 @@ class VentasConsolidatorGUI:
                 return False
 
         if self.lb_cols_sel.size() == 0:
-            messagebox.showerror("Error", "Debes seleccionar al menos una columna para el Consolidado.")
+            messagebox.showerror(
+                "Error",
+                "Debes seleccionar al menos una columna para el Consolidado.",
+            )
             return False
 
         return True
@@ -410,10 +526,8 @@ class VentasConsolidatorGUI:
         sel = self.lb_cols_disp.curselection()
         if not sel:
             return
-
         col = self.lb_cols_disp.get(sel[0])
         existentes = [self.lb_cols_sel.get(i) for i in range(self.lb_cols_sel.size())]
-
         if col not in existentes:
             self.lb_cols_sel.insert("end", col)
 
@@ -421,30 +535,24 @@ class VentasConsolidatorGUI:
         sel = self.lb_cols_sel.curselection()
         if not sel:
             return
-
         self.lb_cols_sel.delete(sel[0])
 
     def _col_agregar_custom(self):
         col = self.col_custom_var.get().strip()
         if not col:
             return
-
         existentes = [self.lb_cols_sel.get(i) for i in range(self.lb_cols_sel.size())]
-
         if col not in existentes:
             self.lb_cols_sel.insert("end", col)
-
         self.col_custom_var.set("")
 
     def _mover_col_arriba(self):
         sel = self.lb_cols_sel.curselection()
         if not sel:
             return
-
         idx = sel[0]
         if idx == 0:
             return
-
         texto = self.lb_cols_sel.get(idx)
         self.lb_cols_sel.delete(idx)
         self.lb_cols_sel.insert(idx - 1, texto)
@@ -454,24 +562,21 @@ class VentasConsolidatorGUI:
         sel = self.lb_cols_sel.curselection()
         if not sel:
             return
-
         idx = sel[0]
         if idx == self.lb_cols_sel.size() - 1:
             return
-
         texto = self.lb_cols_sel.get(idx)
         self.lb_cols_sel.delete(idx)
         self.lb_cols_sel.insert(idx + 1, texto)
         self.lb_cols_sel.selection_set(idx + 1)
 
-    def _get_columnas_consolidado(self):
+    def _get_columnas_consolidado(self) -> List[str]:
         return [self.lb_cols_sel.get(i) for i in range(self.lb_cols_sel.size())]
 
     # Procesamiento
     def procesar_async(self):
         if not self.validar():
             return
-
         self.btn_procesar.config(state="disabled")
         t = threading.Thread(target=self._procesar, daemon=True)
         t.start()
@@ -481,7 +586,11 @@ class VentasConsolidatorGUI:
             anio = self.anio_var.get()
             meses_sel = [m for m, v in self.meses_vars.items() if v.get()]
 
-            archivos_filtrados = [a for a in self.archivos if a["anio"] == anio and a["mes"] in meses_sel]
+            archivos_filtrados = [
+                a
+                for a in self.archivos
+                if a["anio"] == anio and a["mes"] in meses_sel
+            ]
 
             if not archivos_filtrados:
                 messagebox.showerror(
@@ -496,27 +605,32 @@ class VentasConsolidatorGUI:
 
             ts = datetime.now().strftime("%Y%m%d_%H%M")
             default_name = f"Ventas_Consolidadas_Final_{ts}.xlsx"
-
             ruta_salida = filedialog.asksaveasfilename(
                 title="Guardar archivo de salida",
                 defaultextension=".xlsx",
                 initialfile=default_name,
                 filetypes=[("Excel", "*.xlsx")],
             )
-
             if not ruta_salida:
                 self.log("Operación cancelada por el usuario.")
                 return
 
             columnas_consolidado = self._get_columnas_consolidado()
-
-            deps = [d.strip() for d in self.especiales_deps_var.get().split(",") if d.strip()]
-            marcas = [m.strip() for m in self.especiales_marcas_var.get().split(",") if m.strip()]
-
-            filtros_especiales = {"departamentos": deps, "marcas": marcas} if (deps or marcas) else None
+            deps = [
+                d.strip()
+                for d in self.especiales_deps_var.get().split(",")
+                if d.strip()
+            ]
+            marcas = [
+                m.strip()
+                for m in self.especiales_marcas_var.get().split(",")
+                if m.strip()
+            ]
+            filtros_especiales = (
+                {"departamentos": deps, "marcas": marcas} if (deps or marcas) else None
+            )
 
             self.log(f"Generando reportes en {ruta_salida}...")
-
             generar_reportes(
                 df,
                 ruta_salida,
@@ -530,13 +644,11 @@ class VentasConsolidatorGUI:
                 habilitar_estacionalidad=self.habilitar_estacionalidad_var.get(),
             )
 
-            self.log("✅ Proceso completado exitosamente.")
+            self.log("✅ Proceso completado.")
             messagebox.showinfo("Listo", f"Archivo generado:\n{ruta_salida}")
-
         except Exception as e:
             self.log(f"ERROR: {e}")
             messagebox.showerror("Error", str(e))
-
         finally:
             self.btn_procesar.config(state="normal")
 
